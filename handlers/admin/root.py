@@ -42,3 +42,26 @@ async def cb_admin_cancel(callback: CallbackQuery, state: FSMContext) -> None:
     await state.clear()
     await edit_or_send(callback, ADMIN_TITLE, admin_kb.admin_root_kb())
     await callback.answer("Отменено")
+
+
+@admin_router.message(Command("import_menu"))
+async def cmd_import_menu(message: Message, state: FSMContext) -> None:
+    """Повторно загрузить меню из data/menu/menu.json (тексты и фото)."""
+    if not await is_admin(message.from_user.id):
+        return
+    from tools.import_menu import (
+        PhotoUploader, _backup_db, format_stats, import_menu, menu_file_hash,
+    )
+
+    await state.clear()
+    replace = "фото" in (message.text or "").lower()
+    await message.answer(
+        "⏳ Загружаю меню из файла… Это займёт 1–2 минуты."
+        + ("\nФото будут заменены." if replace else "")
+    )
+    _backup_db()
+    uploader = PhotoUploader(message.bot, message.chat.id)
+    stats = await import_menu(uploader, replace_photos=replace, say=lambda s: None)
+    if not stats["photo_errors"]:
+        await db.set_meta("menu_import_hash", menu_file_hash())
+    await message.answer("✅ " + format_stats(stats))

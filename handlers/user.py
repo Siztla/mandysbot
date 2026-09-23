@@ -8,9 +8,8 @@ from aiogram.types import Message, CallbackQuery
 from database import db
 from keyboards import user_kb
 from keyboards.callback_data import MainCB, SectionCB, MenuCB
-from utils.formatting import format_position, format_section_item
-from utils.htmlsafe import esc
-from utils.msg import edit_or_send, show_card, send_card
+from utils.formatting import POSITION_PARSE_MODE, format_position, format_section_item
+from utils.msg import edit_or_send, show_card
 
 router = Router(name="user")
 
@@ -22,8 +21,14 @@ router = Router(name="user")
 @router.message(CommandStart())
 async def cmd_start(message: Message) -> None:
     onboarding = await db.get_onboarding()
+    text = onboarding["text"]
     kb = user_kb.main_menu_kb()
-    await send_card(message, onboarding["text"], onboarding["photo_file_id"], kb)
+
+    if onboarding["photo_file_id"]:
+        caption = text if len(text) <= 1024 else text[:1021] + "…"
+        await message.answer_photo(photo=onboarding["photo_file_id"], caption=caption, reply_markup=kb)
+    else:
+        await message.answer(text, reply_markup=kb)
 
 
 @router.callback_query(MainCB.filter(F.action == "root"))
@@ -101,6 +106,25 @@ async def cb_menu_groups(callback: CallbackQuery) -> None:
     await callback.answer()
 
 
+async def _show_positions(callback: CallbackQuery, category, header: str) -> None:
+    """Список позиций категории. Если в группе всего одна категория, шаг
+    выбора категории пропускается, и «Назад» ведёт сразу к списку групп."""
+    categories = await db.get_categories(category["group_id"])
+    if len(categories) == 1:
+        back_cb = MenuCB(action="groups").pack()
+    else:
+        back_cb = MenuCB(action="group", id=category["group_id"]).pack()
+
+    positions = await db.get_positions(category["id"])
+    if not positions:
+        text = f"🍽 {header}\n\nВ этой категории пока нет позиций."
+        kb = user_kb.empty_list_kb(back_cb)
+    else:
+        text = f"🍽 {header}\n\nВыберите позицию:"
+        kb = user_kb.positions_list_kb(positions, back_cb)
+    await edit_or_send(callback, text, kb)
+
+
 @router.callback_query(MenuCB.filter(F.action == "group"))
 async def cb_menu_group(callback: CallbackQuery, callback_data: MenuCB) -> None:
     group = await db.get_group(callback_data.id)
@@ -109,12 +133,15 @@ async def cb_menu_group(callback: CallbackQuery, callback_data: MenuCB) -> None:
         return
     categories = await db.get_categories(group["id"])
     if not categories:
-        text = f"📂 {esc(group['title'])}\n\nВ этой группе пока нет категорий."
+        text = f"📂 {group['title']}\n\nВ этой группе пока нет категорий."
         kb = user_kb.empty_list_kb(MenuCB(action="groups").pack())
+        await edit_or_send(callback, text, kb)
+    elif len(categories) == 1:
+        await _show_positions(callback, categories[0], group["title"])
     else:
-        text = f"📂 {esc(group['title'])}\n\nВыберите категорию:"
+        text = f"📂 {group['title']}\n\nВыберите категорию:"
         kb = user_kb.categories_list_kb(categories, group["id"])
-    await edit_or_send(callback, text, kb)
+        await edit_or_send(callback, text, kb)
     await callback.answer()
 
 
@@ -124,14 +151,12 @@ async def cb_menu_category(callback: CallbackQuery, callback_data: MenuCB) -> No
     if category is None:
         await callback.answer("Категория не найдена.", show_alert=True)
         return
-    positions = await db.get_positions(category["id"])
-    if not positions:
-        text = f"🍽 {esc(category['title'])}\n\nВ этой категории пока нет позиций."
-        kb = user_kb.empty_list_kb(MenuCB(action="group", id=category["group_id"]).pack())
-    else:
-        text = f"🍽 {esc(category['title'])}\n\nВыберите позицию:"
-        kb = user_kb.positions_list_kb(positions, category["group_id"])
-    await edit_or_send(callback, text, kb)
+    categories = await db.get_categories(category["group_id"])
+    header = category["title"]
+    if len(categories) == 1:
+        group = await db.get_group(category["group_id"])
+        header = group["title"] if group else header
+    await _show_positions(callback, category, header)
     await callback.answer()
 
 
@@ -143,5 +168,5 @@ async def cb_menu_position(callback: CallbackQuery, callback_data: MenuCB) -> No
         return
     text = format_position(position)
     kb = user_kb.position_card_kb(position["category_id"])
-    await show_card(callback, text, position["photo_file_id"], kb)
+    await show_card(callback, text, position["photo_file_id"], kb, parse_mode=POSITION_PARSE_MODE)
     await callback.answer()

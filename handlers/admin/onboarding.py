@@ -7,7 +7,7 @@ from handlers.admin import admin_router
 from keyboards import admin_kb
 from keyboards.callback_data import AdminRootCB, AdminOnboardingCB
 from states.admin_states import AdminStates
-from utils.msg import edit_or_send, show_card, send_card
+from utils.msg import edit_or_send, show_card
 
 CLEAR_WORDS = {"-", "—", "удалить", "очистить", "нет"}
 
@@ -21,7 +21,10 @@ async def _send_onboarding_card(message: Message) -> None:
     onboarding = await db.get_onboarding()
     text = _onboarding_text(onboarding)
     kb = admin_kb.onboarding_kb()
-    await send_card(message, text, onboarding["photo_file_id"], kb)
+    if onboarding["photo_file_id"]:
+        await message.answer_photo(photo=onboarding["photo_file_id"], caption=text[:1024], reply_markup=kb)
+    else:
+        await message.answer(text, reply_markup=kb)
 
 
 @admin_router.callback_query(AdminRootCB.filter(F.action == "onboarding"))
@@ -54,7 +57,7 @@ async def cb_onboarding_edit_photo(callback: CallbackQuery, state: FSMContext) -
 
 @admin_router.message(AdminStates.waiting_onboarding_text)
 async def on_onboarding_text(message: Message, state: FSMContext) -> None:
-    text = (message.html_text or message.text or "").strip()
+    text = (message.text or "").strip()
     if not text:
         await message.answer("Текст не может быть пустым. Попробуйте ещё раз:", reply_markup=admin_kb.cancel_kb())
         return

@@ -70,12 +70,14 @@ def categories_list_kb(categories, group_id: int) -> InlineKeyboardMarkup:
     return b.as_markup()
 
 
-def positions_list_kb(positions, group_id: int) -> InlineKeyboardMarkup:
+def positions_list_kb(positions, back_cb: str) -> InlineKeyboardMarkup:
+    """Список позиций. `back_cb` — куда ведёт «Назад»: в группу или, если
+    в группе единственная категория, сразу к списку групп."""
     b = InlineKeyboardBuilder()
     for p in positions:
         b.button(text=p["title"], callback_data=MenuCB(action="position", id=p["id"]))
     b.adjust(1)
-    b.row(InlineKeyboardButton(text=BTN_BACK, callback_data=MenuCB(action="group", id=group_id).pack()))
+    b.row(InlineKeyboardButton(text=BTN_BACK, callback_data=back_cb))
     return b.as_markup()
 
 

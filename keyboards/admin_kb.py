@@ -32,7 +32,6 @@ def admin_root_kb() -> InlineKeyboardMarkup:
     b.button(text="📝 Онбординг", callback_data=AdminRootCB(action="onboarding"))
     b.button(text="🧪 Тест по стандартам", callback_data=AdminRootCB(action="quiz"))
     b.button(text="👤 Администраторы", callback_data=AdminRootCB(action="admins"))
-    b.button(text="📦 Резервная копия БД", callback_data=AdminRootCB(action="backup"))
     b.button(text="🚪 Выйти из админки", callback_data=AdminRootCB(action="exit"))
     b.adjust(1)
     return b.as_markup()
@@ -109,12 +108,15 @@ def position_card_kb(category_id: int, position_id: int) -> InlineKeyboardMarkup
     b.button(text="✏️ Название", callback_data=AdminPositionsCB(action="edit_title", category_id=category_id, id=position_id))
     b.button(text="🖼 Фото", callback_data=AdminPositionsCB(action="edit_photo", category_id=category_id, id=position_id))
     b.button(text="📝 Состав", callback_data=AdminPositionsCB(action="edit_composition", category_id=category_id, id=position_id))
+    b.button(text="🍴 Подача", callback_data=AdminPositionsCB(action="edit_serving", category_id=category_id, id=position_id))
+    b.button(text="✨ Особенности", callback_data=AdminPositionsCB(action="edit_features", category_id=category_id, id=position_id))
+    b.button(text="💬 Для гостя", callback_data=AdminPositionsCB(action="edit_guest", category_id=category_id, id=position_id))
     b.button(text="📋 Описание", callback_data=AdminPositionsCB(action="edit_description", category_id=category_id, id=position_id))
     b.button(text="⚠️ Аллергены", callback_data=AdminPositionsCB(action="edit_allergens", category_id=category_id, id=position_id))
-    b.button(text="🍽 С чем подаётся", callback_data=AdminPositionsCB(action="edit_served", category_id=category_id, id=position_id))
+    b.button(text="🥂 С чем подаётся", callback_data=AdminPositionsCB(action="edit_served", category_id=category_id, id=position_id))
     b.button(text="👁 Предпросмотр", callback_data=AdminPositionsCB(action="preview", category_id=category_id, id=position_id))
     b.button(text="🗑 Удалить позицию", callback_data=AdminPositionsCB(action="delete", category_id=category_id, id=position_id))
-    b.adjust(2, 2, 2, 1, 1)
+    b.adjust(2, 2, 2, 2, 2, 1, 1)
     b.row(InlineKeyboardButton(
         text=BACK, callback_data=AdminPositionsCB(action="list", category_id=category_id).pack()
     ))
@@ -142,11 +144,6 @@ def section_list_kb(section: str, items) -> InlineKeyboardMarkup:
     b.row(InlineKeyboardButton(
         text="📥 Массовый импорт", callback_data=AdminSectionCB(section=section, action="bulk_import").pack()
     ))
-    if section == "standards":
-        b.row(InlineKeyboardButton(
-            text="📚 Загрузить пособие «Стандарты сервиса»",
-            callback_data=AdminSectionCB(section=section, action="seed_standards").pack(),
-        ))
     b.row(InlineKeyboardButton(text=BACK, callback_data=AdminRootCB(action="root").pack()))
     return b.as_markup()
 

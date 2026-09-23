@@ -7,8 +7,7 @@ from handlers.admin import admin_router
 from keyboards import admin_kb
 from keyboards.callback_data import AdminRootCB, AdminSectionCB
 from states.admin_states import AdminStates
-from utils.htmlsafe import esc
-from utils.msg import edit_or_send, show_card, send_card
+from utils.msg import edit_or_send, show_card
 
 SECTION_TITLES = {"values": "💎 Ценности", "standards": "📐 Стандарты"}
 CLEAR_WORDS = {"-", "—", "удалить", "очистить", "нет"}
@@ -68,14 +67,17 @@ def _list_title(section: str) -> str:
 def _item_text(item) -> str:
     has_photo = "есть" if item["photo_file_id"] else "нет"
     desc = item["description"] or "(описание не заполнено)"
-    return f"{esc(item['title'])}\n\n{desc}\n\n— — —\nФото: {has_photo}"
+    return f"{item['title']}\n\n{desc}\n\n— — —\nФото: {has_photo}"
 
 
 async def _send_item_card(message: Message, section: str, item_id: int) -> None:
     item = await db.get_section_item(item_id)
     text = _item_text(item)
     kb = admin_kb.section_item_kb(section, item_id)
-    await send_card(message, text, item["photo_file_id"], kb)
+    if item["photo_file_id"]:
+        await message.answer_photo(photo=item["photo_file_id"], caption=text[:1024], reply_markup=kb)
+    else:
+        await message.answer(text, reply_markup=kb)
 
 
 @admin_router.callback_query(AdminRootCB.filter(F.action.in_({"values", "standards"})))
@@ -194,7 +196,7 @@ async def on_section_rename(message: Message, state: FSMContext) -> None:
 
 @admin_router.message(AdminStates.waiting_section_description)
 async def on_section_description(message: Message, state: FSMContext) -> None:
-    text = (message.html_text or message.text or "").strip()
+    text = (message.text or "").strip()
     data = await state.get_data()
     await db.update_section_item(data["item_id"], description=text)
     await state.clear()
@@ -248,23 +250,11 @@ async def _process_bulk_import(message: Message, state: FSMContext, text: str) -
     section = data["section"]
     created_titles = []
     for title, description in items:
-        # Массовый импорт приходит как сырой вставленный текст без
-        # Telegram-сущностей форматирования (в отличие от html_text при
-        # редактировании одного пункта), поэтому описание считаем всегда
-        # обычным текстом и экранируем его перед сохранением — так
-        # проще и безопаснее всего, и это никогда не сломает HTML-парсер.
-        # Название не экранируем при сохранении (оно хранится как есть и
-        # используется в том числе как текст кнопки — экранирование
-        # применяется к нему уже при показе карточки, см. _item_text).
-        # Если для конкретного пункта нужна красивая разметка (жирный,
-        # курсив, цитата) — её можно добавить потом, отредактировав
-        # пункт вручную через админ-панель: там описание сохраняется
-        # через message.html_text и поддерживает форматирование.
-        await db.add_section_item(section, title, esc(description))
+        await db.add_section_item(section, title, description)
         created_titles.append(title)
     await state.clear()
 
-    summary = "\n".join(f"• {esc(t)}" for t in created_titles)
+    summary = "\n".join(f"• {t}" for t in created_titles)
     await message.answer(f"Импортировано пунктов: {len(created_titles)} ✅\n\n{summary}")
 
     all_items = await db.get_section_items(section)

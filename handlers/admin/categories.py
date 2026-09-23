@@ -7,16 +7,15 @@ from handlers.admin import admin_router
 from keyboards import admin_kb
 from keyboards.callback_data import AdminCategoriesCB
 from states.admin_states import AdminStates
-from utils.htmlsafe import esc
 from utils.msg import edit_or_send
 
 
 def _categories_title(group) -> str:
-    return f"📂 {esc(group['title'])} — категории\n\nВыберите категорию или добавьте новую:"
+    return f"📂 {group['title']} — категории\n\nВыберите категорию или добавьте новую:"
 
 
 def _category_card_text(group, category) -> str:
-    return f"🗂 Категория: {esc(category['title'])}\nГруппа: {esc(group['title'])}\n\nID: {category['id']}"
+    return f"🗂 Категория: {category['title']}\nГруппа: {group['title']}\n\nID: {category['id']}"
 
 
 @admin_router.callback_query(AdminCategoriesCB.filter(F.action == "list"))

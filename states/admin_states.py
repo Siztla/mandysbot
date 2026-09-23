@@ -23,6 +23,7 @@ class AdminStates(StatesGroup):
     waiting_section_rename = State()
     waiting_section_description = State()
     waiting_section_photo = State()
+    waiting_section_bulk_import = State()
 
     # онбординг
     waiting_onboarding_text = State()

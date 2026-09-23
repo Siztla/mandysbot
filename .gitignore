@@ -1,0 +1,21 @@
+# секреты и окружение
+.env
+
+# база данных (создаётся автоматически при первом запуске)
+*.db
+*.db-journal
+*.sqlite3
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+venv/
+env/
+*.egg-info/
+
+# IDE / OS
+.vscode/
+.idea/
+.DS_Store

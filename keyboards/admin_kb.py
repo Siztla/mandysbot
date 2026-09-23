@@ -138,6 +138,9 @@ def section_list_kb(section: str, items) -> InlineKeyboardMarkup:
     b.row(InlineKeyboardButton(
         text="➕ Добавить пункт", callback_data=AdminSectionCB(section=section, action="add").pack()
     ))
+    b.row(InlineKeyboardButton(
+        text="📥 Массовый импорт", callback_data=AdminSectionCB(section=section, action="bulk_import").pack()
+    ))
     b.row(InlineKeyboardButton(text=BACK, callback_data=AdminRootCB(action="root").pack()))
     return b.as_markup()
 

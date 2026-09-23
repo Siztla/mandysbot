@@ -53,7 +53,7 @@ class AdminPositionsCB(CallbackData, prefix="ap"):
 
 class AdminSectionCB(CallbackData, prefix="asc"):
     section: str  # "values" | "standards"
-    action: str   # "list" | "open" | "add" | "rename" | "edit_desc" | "edit_photo" | "delete"
+    action: str   # "list" | "open" | "add" | "rename" | "edit_desc" | "edit_photo" | "delete" | "bulk_import"
     id: int = 0
 
 

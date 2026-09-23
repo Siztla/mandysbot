@@ -12,6 +12,53 @@ from utils.msg import edit_or_send, show_card
 SECTION_TITLES = {"values": "💎 Ценности", "standards": "📐 Стандарты"}
 CLEAR_WORDS = {"-", "—", "удалить", "очистить", "нет"}
 
+BULK_IMPORT_HELP = (
+    "Массовый импорт пунктов.\n\n"
+    "Пришлите текстом (или файлом .txt) список пунктов. Каждый пункт — "
+    "первая строка это название, дальше до разделителя — описание "
+    "(можно в несколько строк). Разделитель между пунктами — строка из "
+    "трёх знаков равно: ===\n\n"
+    "Например:\n\n"
+    "Миссия\n"
+    "Текст миссии, можно в несколько предложений.\n"
+    "===\n"
+    "Ключевая идея\n"
+    "Текст ключевой идеи.\n"
+    "===\n"
+    "Эстетика\n"
+    "Мы верим, что красота — это не роскошь, а ежедневная необходимость.\n\n"
+    "Если сообщение слишком длинное для одного текста в Telegram — "
+    "пришлите его как файл .txt (просто прикрепите файл, без сжатия)."
+)
+
+
+def _parse_bulk_items(text: str) -> list[tuple[str, str]]:
+    """Разбирает текст на (название, описание) по разделителю "===" —
+    строке, состоящей ровно из трёх знаков равно (пробелы вокруг не
+    важны). Первая непустая строка блока — название, остальное —
+    описание. Пустые блоки пропускаются."""
+    lines = text.replace("\r\n", "\n").split("\n")
+    blocks: list[list[str]] = [[]]
+    for line in lines:
+        if line.strip() == "===":
+            blocks.append([])
+        else:
+            blocks[-1].append(line)
+
+    items = []
+    for block in blocks:
+        while block and not block[0].strip():
+            block.pop(0)
+        while block and not block[-1].strip():
+            block.pop()
+        if not block:
+            continue
+        title = block[0].strip()
+        description = "\n".join(block[1:]).strip()
+        if title:
+            items.append((title, description))
+    return items
+
 
 def _list_title(section: str) -> str:
     return f"{SECTION_TITLES[section]} — управление\n\nВыберите пункт или добавьте новый:"
@@ -100,6 +147,14 @@ async def cb_section_edit_photo(callback: CallbackQuery, callback_data: AdminSec
     await callback.answer()
 
 
+@admin_router.callback_query(AdminSectionCB.filter(F.action == "bulk_import"))
+async def cb_section_bulk_import(callback: CallbackQuery, callback_data: AdminSectionCB, state: FSMContext) -> None:
+    await state.set_state(AdminStates.waiting_section_bulk_import)
+    await state.update_data(section=callback_data.section)
+    await edit_or_send(callback, BULK_IMPORT_HELP, admin_kb.cancel_kb())
+    await callback.answer()
+
+
 @admin_router.callback_query(AdminSectionCB.filter(F.action == "delete"))
 async def cb_section_delete(callback: CallbackQuery, callback_data: AdminSectionCB, state: FSMContext) -> None:
     await db.delete_section_item(callback_data.id)
@@ -177,4 +232,61 @@ async def on_section_photo_other(message: Message, state: FSMContext) -> None:
     await message.answer(
         "Не получилось распознать сообщение. Пришлите фото или «-», чтобы убрать текущее фото.",
         reply_markup=admin_kb.cancel_kb(),
+    )
+
+
+async def _process_bulk_import(message: Message, state: FSMContext, text: str) -> None:
+    items = _parse_bulk_items(text)
+    if not items:
+        await message.answer(
+            "Не нашёл ни одного пункта. Проверьте формат (название — первая строка "
+            "блока, разделитель между пунктами — отдельная строка \"===\") и "
+            "пришлите ещё раз:",
+            reply_markup=admin_kb.cancel_kb(),
+        )
+        return
+
+    data = await state.get_data()
+    section = data["section"]
+    created_titles = []
+    for title, description in items:
+        await db.add_section_item(section, title, description)
+        created_titles.append(title)
+    await state.clear()
+
+    summary = "\n".join(f"• {t}" for t in created_titles)
+    await message.answer(f"Импортировано пунктов: {len(created_titles)} ✅\n\n{summary}")
+
+    all_items = await db.get_section_items(section)
+    await message.answer(_list_title(section), reply_markup=admin_kb.section_list_kb(section, all_items))
+
+
+@admin_router.message(AdminStates.waiting_section_bulk_import, F.document)
+async def on_section_bulk_import_document(message: Message, state: FSMContext) -> None:
+    doc = message.document
+    if doc.file_size and doc.file_size > 2_000_000:
+        await message.answer(
+            "Файл слишком большой. Пришлите файл поменьше или вставьте текст сообщением.",
+            reply_markup=admin_kb.cancel_kb(),
+        )
+        return
+    file = await message.bot.get_file(doc.file_id)
+    buf = await message.bot.download_file(file.file_path)
+    raw = buf.read()
+    try:
+        text = raw.decode("utf-8")
+    except UnicodeDecodeError:
+        text = raw.decode("cp1251", errors="replace")
+    await _process_bulk_import(message, state, text)
+
+
+@admin_router.message(AdminStates.waiting_section_bulk_import, F.text)
+async def on_section_bulk_import_text(message: Message, state: FSMContext) -> None:
+    await _process_bulk_import(message, state, message.text or "")
+
+
+@admin_router.message(AdminStates.waiting_section_bulk_import)
+async def on_section_bulk_import_other(message: Message, state: FSMContext) -> None:
+    await message.answer(
+        "Пришлите текст со списком пунктов или файл .txt.", reply_markup=admin_kb.cancel_kb()
     )

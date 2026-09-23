@@ -3,7 +3,6 @@ import logging
 
 from aiogram import Bot, Dispatcher
 from aiogram.client.default import DefaultBotProperties
-from aiogram.enums import ParseMode
 from aiogram.fsm.storage.memory import MemoryStorage
 
 import config
@@ -11,6 +10,7 @@ from database.db import init_db
 from handlers.user import router as user_router
 from handlers.quiz import router as quiz_router
 from handlers.admin import admin_router
+from tools.import_menu import auto_import
 
 
 async def main() -> None:
@@ -23,7 +23,7 @@ async def main() -> None:
 
     await init_db()
 
-    bot = Bot(token=config.BOT_TOKEN, default=DefaultBotProperties(parse_mode=ParseMode.HTML))
+    bot = Bot(token=config.BOT_TOKEN, default=DefaultBotProperties(parse_mode=None))
     dp = Dispatcher(storage=MemoryStorage())
 
     # Порядок важен: сначала админ-роутер (у него есть команда /admin и все
@@ -35,6 +35,16 @@ async def main() -> None:
     dp.include_router(user_router)
 
     await bot.delete_webhook(drop_pending_updates=True)
+
+    # Если в data/menu/menu.json новое меню — загрузить его в базу (в фоне,
+    # бот при этом уже отвечает пользователям).
+    async def _safe_auto_import() -> None:
+        try:
+            await auto_import(bot)
+        except Exception:
+            logging.exception("Автоимпорт меню не удался")
+
+    asyncio.create_task(_safe_auto_import())
     logging.info("Mandy's training bot запущен")
     await dp.start_polling(bot)
 

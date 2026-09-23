@@ -1,135 +1,86 @@
 """Вспомогательные функции для редактирования/пересоздания сообщений
-при переходах по инлайн-меню."""
+при переходах по инлайн-меню.
 
-import logging
+Карточка с фото. Подпись к фото в Telegram — максимум 1024 символа.
+Если текст длиннее, карточка отправляется двумя сообщениями: фото (подпись —
+только первая строка карточки) и следом полный текст с кнопками. Текст
+никогда не обрезается. Фото-«компаньон» запоминается и удаляется, когда
+пользователь уходит с карточки, чтобы в чате не копились старые фото.
+"""
+
+import re
+from html import unescape
 from typing import Optional
 
 from aiogram.exceptions import TelegramBadRequest
 from aiogram.types import CallbackQuery, InlineKeyboardMarkup, Message
 
-logger = logging.getLogger(__name__)
+CAPTION_LIMIT = 1024
+
+# (chat_id, id сообщения с текстом) -> id сообщения с фото
+_photo_companions: dict[tuple[int, int], int] = {}
 
 
-def _chunk_text(text: str, limit: int = 4096) -> list[str]:
-    """Разбивает текст на части не длиннее `limit` символов. Режет по
-    границам абзацев ("\\n\\n"), жадно упаковывая в каждую часть как можно
-    больше абзацев. Если отдельный абзац сам длиннее `limit` — режет его
-    по последнему пробелу перед границей (а если пробела нет — жёстко по
-    границе)."""
-    if len(text) <= limit:
-        return [text]
-
-    paragraphs = text.split("\n\n")
-    chunks: list[str] = []
-    current = ""
-
-    for para in paragraphs:
-        piece = para
-        while len(piece) > limit:
-            if current:
-                chunks.append(current)
-                current = ""
-            cut = piece.rfind(" ", 0, limit)
-            if cut <= 0:
-                cut = limit
-            chunks.append(piece[:cut])
-            piece = piece[cut:].lstrip(" ")
-
-        if not piece:
-            continue
-
-        candidate = f"{current}\n\n{piece}" if current else piece
-        if len(candidate) <= limit:
-            current = candidate
-        else:
-            chunks.append(current)
-            current = piece
-
-    if current:
-        chunks.append(current)
-
-    return chunks
-
-
-def _looks_like_html_error(exc: TelegramBadRequest) -> bool:
-    text = str(exc).lower()
-    return "parse" in text or "entit" in text
-
-
-async def _edit_text_safe(message: Message, text: str, reply_markup: Optional[InlineKeyboardMarkup]) -> None:
+async def _drop_companion(message: Message) -> None:
+    photo_id = _photo_companions.pop((message.chat.id, message.message_id), None)
+    if photo_id is None:
+        return
     try:
-        await message.edit_text(text, reply_markup=reply_markup)
-    except TelegramBadRequest as e:
-        if _looks_like_html_error(e):
-            logger.warning("Не удалось отредактировать сообщение как HTML (%s), повтор без разметки", e)
-            await message.edit_text(text, reply_markup=reply_markup, parse_mode=None)
-        else:
-            raise
+        await message.bot.delete_message(message.chat.id, photo_id)
+    except Exception:
+        pass
 
 
-async def _answer_safe(message: Message, text: str, reply_markup: Optional[InlineKeyboardMarkup]) -> None:
-    try:
-        await message.answer(text, reply_markup=reply_markup)
-    except TelegramBadRequest as e:
-        if _looks_like_html_error(e):
-            logger.warning("Не удалось отправить сообщение как HTML (%s), повтор без разметки", e)
-            await message.answer(text, reply_markup=reply_markup, parse_mode=None)
-        else:
-            raise
+def visible_length(text: str, parse_mode: Optional[str] = None) -> int:
+    """Длина текста так, как её считает Telegram: без HTML-тегов и в
+    единицах UTF-16 (эмодзи = 2)."""
+    if parse_mode and parse_mode.upper() == "HTML":
+        text = unescape(re.sub(r"<[^>]+>", "", text))
+    return len(text.encode("utf-16-le")) // 2
 
 
-async def _answer_photo_safe(
-    message: Message,
-    photo_file_id: str,
-    caption: Optional[str],
-    reply_markup: Optional[InlineKeyboardMarkup],
-) -> None:
-    try:
-        await message.answer_photo(photo=photo_file_id, caption=caption, reply_markup=reply_markup)
-    except TelegramBadRequest as e:
-        if _looks_like_html_error(e):
-            logger.warning("Не удалось отправить фото-подпись как HTML (%s), повтор без разметки", e)
-            await message.answer_photo(
-                photo=photo_file_id, caption=caption, reply_markup=reply_markup, parse_mode=None
-            )
-        else:
-            raise
+def _caption_head(text: str) -> str:
+    """Короткая подпись к фото, когда полный текст идёт отдельным сообщением."""
+    first = text.split("\n", 1)[0]
+    return first if visible_length(first) <= CAPTION_LIMIT else ""
 
 
-async def _deliver_card(
-    message: Message,
+async def send_card(
+    target: Message,
     text: str,
     photo_file_id: Optional[str],
-    reply_markup: Optional[InlineKeyboardMarkup],
-) -> None:
-    """Отправляет карточку (фото+подпись или просто текст) сообщением
-    `message.answer*`, без обрезания текста: длинную подпись/текст при
-    необходимости разбивает на несколько сообщений."""
-    if photo_file_id:
-        if len(text) > 1024:
-            await _answer_photo_safe(message, photo_file_id, None, None)
-            chunks = _chunk_text(text)
-            for i, chunk in enumerate(chunks):
-                kb = reply_markup if i == len(chunks) - 1 else None
-                await _answer_safe(message, chunk, kb)
-        else:
-            await _answer_photo_safe(message, photo_file_id, text, reply_markup)
-    else:
-        chunks = _chunk_text(text)
-        for i, chunk in enumerate(chunks):
-            kb = reply_markup if i == len(chunks) - 1 else None
-            await _answer_safe(message, chunk, kb)
+    reply_markup: Optional[InlineKeyboardMarkup] = None,
+    parse_mode: Optional[str] = None,
+) -> Message:
+    """Отправляет карточку в чат сообщения `target`. Возвращает сообщение с
+    кнопками (текстовое или фото)."""
+    if not photo_file_id:
+        return await target.answer(text, reply_markup=reply_markup, parse_mode=parse_mode)
+
+    if visible_length(text, parse_mode) <= CAPTION_LIMIT:
+        return await target.answer_photo(
+            photo=photo_file_id, caption=text, reply_markup=reply_markup, parse_mode=parse_mode
+        )
+
+    photo_msg = await target.answer_photo(
+        photo=photo_file_id, caption=_caption_head(text) or None, parse_mode=parse_mode
+    )
+    text_msg = await target.answer(text, reply_markup=reply_markup, parse_mode=parse_mode)
+    _photo_companions[(text_msg.chat.id, text_msg.message_id)] = photo_msg.message_id
+    return text_msg
 
 
 async def edit_or_send(
     callback: CallbackQuery,
     text: str,
     reply_markup: Optional[InlineKeyboardMarkup] = None,
+    parse_mode: Optional[str] = None,
 ) -> None:
     """Обновляет текстовое сообщение (списки, меню). Если исходное
     сообщение было с фото — пересоздаёт как обычный текст."""
+    await _drop_companion(callback.message)
     try:
-        await _edit_text_safe(callback.message, text, reply_markup)
+        await callback.message.edit_text(text, reply_markup=reply_markup, parse_mode=parse_mode)
     except TelegramBadRequest as e:
         if "message is not modified" in str(e):
             return
@@ -137,7 +88,7 @@ async def edit_or_send(
             await callback.message.delete()
         except Exception:
             pass
-        await _answer_safe(callback.message, text, reply_markup)
+        await callback.message.answer(text, reply_markup=reply_markup, parse_mode=parse_mode)
 
 
 async def show_card(
@@ -145,28 +96,14 @@ async def show_card(
     text: str,
     photo_file_id: Optional[str],
     reply_markup: Optional[InlineKeyboardMarkup] = None,
+    parse_mode: Optional[str] = None,
 ) -> None:
     """Показывает карточку, которая может содержать фото (позиция, пункт
     раздела, онбординг). Всегда пересоздаёт сообщение, чтобы корректно
-    переключаться между текстовым и фото-форматом. Текст никогда не
-    обрезается: если подпись к фото не помещается в лимит Telegram (1024
-    символа), фото отправляется без подписи, а следом — отдельным
-    сообщением полный текст."""
+    переключаться между текстовым и фото-форматом."""
+    await _drop_companion(callback.message)
     try:
         await callback.message.delete()
     except Exception:
         pass
-    await _deliver_card(callback.message, text, photo_file_id, reply_markup)
-
-
-async def send_card(
-    message: Message,
-    text: str,
-    photo_file_id: Optional[str],
-    reply_markup: Optional[InlineKeyboardMarkup] = None,
-) -> None:
-    """То же самое, что show_card, но в ответ на обычное сообщение (а не
-    колбэк с существующей карточкой для замены) — без удаления/
-    пересоздания. Используется в message-хендлерах после создания/
-    редактирования записи."""
-    await _deliver_card(message, text, photo_file_id, reply_markup)
+    await send_card(callback.message, text, photo_file_id, reply_markup, parse_mode)

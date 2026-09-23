@@ -28,7 +28,7 @@ class QuizCB(CallbackData, prefix="qz"):
 # --- Админ-часть -------------------------------------------------------------
 
 class AdminRootCB(CallbackData, prefix="ar"):
-    action: str  # "root" | "menu" | "values" | "standards" | "onboarding" | "admins" | "exit"
+    action: str  # "root" | "menu" | "values" | "standards" | "onboarding" | "admins" | "backup" | "exit"
 
 
 class AdminGroupsCB(CallbackData, prefix="ag"):
@@ -54,7 +54,9 @@ class AdminPositionsCB(CallbackData, prefix="ap"):
 
 class AdminSectionCB(CallbackData, prefix="asc"):
     section: str  # "values" | "standards"
-    action: str   # "list" | "open" | "add" | "rename" | "edit_desc" | "edit_photo" | "delete" | "bulk_import"
+    action: str
+    # "list" | "open" | "add" | "rename" | "edit_desc" | "edit_photo" | "delete" |
+    # "bulk_import" | "seed_standards"
     id: int = 0
 
 

@@ -9,7 +9,8 @@ from database import db
 from keyboards import user_kb
 from keyboards.callback_data import MainCB, SectionCB, MenuCB
 from utils.formatting import POSITION_PARSE_MODE, format_position, format_section_item
-from utils.msg import edit_or_send, show_card
+from utils.htmlsafe import esc
+from utils.msg import edit_or_send, send_card, show_card
 
 router = Router(name="user")
 
@@ -21,14 +22,8 @@ router = Router(name="user")
 @router.message(CommandStart())
 async def cmd_start(message: Message) -> None:
     onboarding = await db.get_onboarding()
-    text = onboarding["text"]
     kb = user_kb.main_menu_kb()
-
-    if onboarding["photo_file_id"]:
-        caption = text if len(text) <= 1024 else text[:1021] + "…"
-        await message.answer_photo(photo=onboarding["photo_file_id"], caption=caption, reply_markup=kb)
-    else:
-        await message.answer(text, reply_markup=kb)
+    await send_card(message, onboarding["text"], onboarding["photo_file_id"], kb)
 
 
 @router.callback_query(MainCB.filter(F.action == "root"))
@@ -117,10 +112,10 @@ async def _show_positions(callback: CallbackQuery, category, header: str) -> Non
 
     positions = await db.get_positions(category["id"])
     if not positions:
-        text = f"🍽 {header}\n\nВ этой категории пока нет позиций."
+        text = f"🍽 {esc(header)}\n\nВ этой категории пока нет позиций."
         kb = user_kb.empty_list_kb(back_cb)
     else:
-        text = f"🍽 {header}\n\nВыберите позицию:"
+        text = f"🍽 {esc(header)}\n\nВыберите позицию:"
         kb = user_kb.positions_list_kb(positions, back_cb)
     await edit_or_send(callback, text, kb)
 
@@ -133,13 +128,13 @@ async def cb_menu_group(callback: CallbackQuery, callback_data: MenuCB) -> None:
         return
     categories = await db.get_categories(group["id"])
     if not categories:
-        text = f"📂 {group['title']}\n\nВ этой группе пока нет категорий."
+        text = f"📂 {esc(group['title'])}\n\nВ этой группе пока нет категорий."
         kb = user_kb.empty_list_kb(MenuCB(action="groups").pack())
         await edit_or_send(callback, text, kb)
     elif len(categories) == 1:
         await _show_positions(callback, categories[0], group["title"])
     else:
-        text = f"📂 {group['title']}\n\nВыберите категорию:"
+        text = f"📂 {esc(group['title'])}\n\nВыберите категорию:"
         kb = user_kb.categories_list_kb(categories, group["id"])
         await edit_or_send(callback, text, kb)
     await callback.answer()

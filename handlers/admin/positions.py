@@ -8,13 +8,14 @@ from keyboards import admin_kb
 from keyboards.callback_data import AdminPositionsCB
 from states.admin_states import AdminStates
 from utils.formatting import POSITION_PARSE_MODE, format_position, format_position_admin
+from utils.htmlsafe import esc
 from utils.msg import edit_or_send, send_card, show_card
 
 CLEAR_WORDS = {"-", "—", "удалить", "очистить", "нет"}
 
 
 def _positions_title(category) -> str:
-    return f"🍽 {category['title']} — позиции\n\nВыберите позицию или добавьте новую:"
+    return f"🍽 {esc(category['title'])} — позиции\n\nВыберите позицию или добавьте новую:"
 
 
 async def _show_position_card(callback: CallbackQuery, position_id: int) -> None:
@@ -150,15 +151,12 @@ async def on_position_title(message: Message, state: FSMContext) -> None:
 
 @admin_router.message(AdminStates.waiting_position_composition)
 async def on_position_composition(message: Message, state: FSMContext) -> None:
-    text = (message.text or "").strip()
-    data = await state.get_data()
-    await db.update_position(data["position_id"], composition=text)
-    await state.clear()
-    await message.answer("Состав обновлён ✅")
-    await _send_position_card(message, data["position_id"])
+    await _save_field(message, state, "composition", "Состав обновлён ✅")
 
 
 async def _save_field(message: Message, state: FSMContext, field: str, done_text: str) -> None:
+    # Поля позиции хранятся обычным текстом (без HTML) — экранирование и
+    # оформление делает utils.formatting.format_position при показе.
     text = (message.text or "").strip()
     data = await state.get_data()
     await db.update_position(data["position_id"], **{field: text})
@@ -184,32 +182,17 @@ async def on_position_guest(message: Message, state: FSMContext) -> None:
 
 @admin_router.message(AdminStates.waiting_position_description)
 async def on_position_description(message: Message, state: FSMContext) -> None:
-    text = (message.text or "").strip()
-    data = await state.get_data()
-    await db.update_position(data["position_id"], description=text)
-    await state.clear()
-    await message.answer("Описание обновлено ✅")
-    await _send_position_card(message, data["position_id"])
+    await _save_field(message, state, "description", "Описание обновлено ✅")
 
 
 @admin_router.message(AdminStates.waiting_position_allergens)
 async def on_position_allergens(message: Message, state: FSMContext) -> None:
-    text = (message.text or "").strip()
-    data = await state.get_data()
-    await db.update_position(data["position_id"], allergens=text)
-    await state.clear()
-    await message.answer("Аллергены обновлены ✅")
-    await _send_position_card(message, data["position_id"])
+    await _save_field(message, state, "allergens", "Аллергены обновлены ✅")
 
 
 @admin_router.message(AdminStates.waiting_position_served)
 async def on_position_served(message: Message, state: FSMContext) -> None:
-    text = (message.text or "").strip()
-    data = await state.get_data()
-    await db.update_position(data["position_id"], served_with=text)
-    await state.clear()
-    await message.answer("Поле «с чем подаётся» обновлено ✅")
-    await _send_position_card(message, data["position_id"])
+    await _save_field(message, state, "served_with", "Поле «с чем подаётся» обновлено ✅")
 
 
 @admin_router.message(AdminStates.waiting_position_photo, F.photo)

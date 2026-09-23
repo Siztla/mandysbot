@@ -32,6 +32,7 @@ def admin_root_kb() -> InlineKeyboardMarkup:
     b.button(text="📝 Онбординг", callback_data=AdminRootCB(action="onboarding"))
     b.button(text="🧪 Тест по стандартам", callback_data=AdminRootCB(action="quiz"))
     b.button(text="👤 Администраторы", callback_data=AdminRootCB(action="admins"))
+    b.button(text="📦 Резервная копия БД", callback_data=AdminRootCB(action="backup"))
     b.button(text="🚪 Выйти из админки", callback_data=AdminRootCB(action="exit"))
     b.adjust(1)
     return b.as_markup()
@@ -144,6 +145,11 @@ def section_list_kb(section: str, items) -> InlineKeyboardMarkup:
     b.row(InlineKeyboardButton(
         text="📥 Массовый импорт", callback_data=AdminSectionCB(section=section, action="bulk_import").pack()
     ))
+    if section == "standards":
+        b.row(InlineKeyboardButton(
+            text="📚 Загрузить пособие «Стандарты сервиса»",
+            callback_data=AdminSectionCB(section=section, action="seed_standards").pack(),
+        ))
     b.row(InlineKeyboardButton(text=BACK, callback_data=AdminRootCB(action="root").pack()))
     return b.as_markup()
 

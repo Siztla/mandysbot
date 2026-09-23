@@ -10,6 +10,7 @@ from database import db
 from keyboards import user_kb
 from keyboards.callback_data import QuizCB
 from states.quiz_states import QuizStates
+from utils.htmlsafe import esc
 from utils.msg import edit_or_send
 
 router = Router(name="quiz")
@@ -40,7 +41,7 @@ async def _show_question(callback: CallbackQuery, state: FSMContext) -> None:
         return
 
     total = len(question_ids)
-    text = f"Вопрос {index + 1} из {total}\n\n{question['question']}"
+    text = f"Вопрос {index + 1} из {total}\n\n{esc(question['question'])}"
     await edit_or_send(callback, text, user_kb.quiz_question_kb(options))
 
 

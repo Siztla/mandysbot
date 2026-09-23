@@ -12,6 +12,7 @@ from handlers.admin import admin_router
 from keyboards import admin_kb
 from keyboards.callback_data import AdminRootCB, AdminQuizCB
 from states.admin_states import AdminStates
+from utils.htmlsafe import esc
 from utils.msg import edit_or_send
 
 LIST_TITLE = "🧪 Тест по стандартам сервиса\n\nВопросы:"
@@ -28,10 +29,10 @@ OPTIONS_HELP = (
 
 
 def _question_card_text(question, options) -> str:
-    lines = [f"❓ {question['question']}", ""]
+    lines = [f"❓ {esc(question['question'])}", ""]
     for opt in options:
         mark = "✅" if opt["is_correct"] else "▫️"
-        lines.append(f"{mark} {opt['option_text']}")
+        lines.append(f"{mark} {esc(opt['option_text'])}")
     if not options:
         lines.append("(варианты ответа ещё не заданы)")
     return "\n".join(lines)
@@ -141,7 +142,7 @@ async def cb_quiz_results(callback: CallbackQuery, state: FSMContext) -> None:
         for r in results:
             pct = round(100 * r["score"] / r["total"]) if r["total"] else 0
             dt = datetime.fromtimestamp(r["finished_at"]).strftime("%d.%m.%Y %H:%M")
-            lines.append(f"{r['user_name']} — {r['score']}/{r['total']} ({pct}%) — {dt}")
+            lines.append(f"{esc(r['user_name'])} — {r['score']}/{r['total']} ({pct}%) — {dt}")
         text = "\n".join(lines)
     await edit_or_send(callback, text, admin_kb.quiz_list_or_back_kb())
     await callback.answer()

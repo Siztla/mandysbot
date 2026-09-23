@@ -1,0 +1,440 @@
+"""
+Слой работы с базой данных (SQLite через aiosqlite).
+
+Структура:
+    onboarding      — единственная запись с текстом приветствия и фото
+    section_items   — пункты разделов "Ценности" и "Стандарты"
+    groups          — группы меню (Завтраки, Бизнес ланч, ...)
+    categories      — категории внутри группы
+    positions       — позиции (блюда) внутри категории
+    admins          — администраторы бота (user_id Telegram)
+"""
+
+import time
+from typing import Any, Optional
+
+import aiosqlite
+
+import config
+
+DEFAULT_GROUPS = [
+    "Завтраки",
+    "Бизнес ланч",
+    "To share",
+    "Закуски",
+    "Сэндвичи",
+    "Салаты",
+    "Супы",
+    "Паста & ризотто",
+    "Мясо & птица",
+    "Рыба & морепродукты",
+    "Овощи & гарниры",
+    "Десерты",
+    "Чай",
+    "Кофе",
+    "Лимонады",
+    "Софт",
+]
+
+DEFAULT_ONBOARDING_TEXT = (
+    "Добро пожаловать в команду Mandy's! 🌿\n\n"
+    "Этот бот поможет тебе быстро освоиться: здесь собраны наши ценности, "
+    "стандарты работы и полное меню с составом, описанием и аллергенами "
+    "каждого блюда.\n\n"
+    "Используй меню ниже, чтобы начать обучение."
+)
+
+
+async def get_conn() -> aiosqlite.Connection:
+    conn = await aiosqlite.connect(config.DB_PATH)
+    await conn.execute("PRAGMA foreign_keys = ON")
+    conn.row_factory = aiosqlite.Row
+    return conn
+
+
+async def init_db() -> None:
+    conn = await get_conn()
+    try:
+        await conn.executescript(
+            """
+            CREATE TABLE IF NOT EXISTS onboarding (
+                id INTEGER PRIMARY KEY CHECK (id = 1),
+                text TEXT NOT NULL,
+                photo_file_id TEXT
+            );
+
+            CREATE TABLE IF NOT EXISTS section_items (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                section TEXT NOT NULL CHECK (section IN ('values', 'standards')),
+                title TEXT NOT NULL,
+                description TEXT NOT NULL DEFAULT '',
+                photo_file_id TEXT,
+                sort_order INTEGER NOT NULL DEFAULT 0,
+                created_at INTEGER NOT NULL
+            );
+
+            CREATE TABLE IF NOT EXISTS groups (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                title TEXT NOT NULL,
+                sort_order INTEGER NOT NULL DEFAULT 0,
+                created_at INTEGER NOT NULL
+            );
+
+            CREATE TABLE IF NOT EXISTS categories (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                group_id INTEGER NOT NULL REFERENCES groups(id) ON DELETE CASCADE,
+                title TEXT NOT NULL,
+                sort_order INTEGER NOT NULL DEFAULT 0,
+                created_at INTEGER NOT NULL
+            );
+
+            CREATE TABLE IF NOT EXISTS positions (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                category_id INTEGER NOT NULL REFERENCES categories(id) ON DELETE CASCADE,
+                title TEXT NOT NULL,
+                photo_file_id TEXT,
+                composition TEXT NOT NULL DEFAULT '',
+                description TEXT NOT NULL DEFAULT '',
+                allergens TEXT NOT NULL DEFAULT '',
+                served_with TEXT NOT NULL DEFAULT '',
+                sort_order INTEGER NOT NULL DEFAULT 0,
+                created_at INTEGER NOT NULL
+            );
+
+            CREATE TABLE IF NOT EXISTS admins (
+                user_id INTEGER PRIMARY KEY,
+                added_at INTEGER NOT NULL
+            );
+            """
+        )
+        await conn.commit()
+
+        # --- сиды ---
+        cur = await conn.execute("SELECT COUNT(*) AS c FROM groups")
+        row = await cur.fetchone()
+        if row["c"] == 0:
+            now = int(time.time())
+            for i, title in enumerate(DEFAULT_GROUPS):
+                await conn.execute(
+                    "INSERT INTO groups (title, sort_order, created_at) VALUES (?, ?, ?)",
+                    (title, i, now),
+                )
+            await conn.commit()
+
+        cur = await conn.execute("SELECT COUNT(*) AS c FROM onboarding")
+        row = await cur.fetchone()
+        if row["c"] == 0:
+            await conn.execute(
+                "INSERT INTO onboarding (id, text, photo_file_id) VALUES (1, ?, NULL)",
+                (DEFAULT_ONBOARDING_TEXT,),
+            )
+            await conn.commit()
+
+        for admin_id in config.ADMIN_IDS:
+            await conn.execute(
+                "INSERT OR IGNORE INTO admins (user_id, added_at) VALUES (?, ?)",
+                (admin_id, int(time.time())),
+            )
+        await conn.commit()
+    finally:
+        await conn.close()
+
+
+# ---------------------------------------------------------------------------
+# Onboarding
+# ---------------------------------------------------------------------------
+
+async def get_onboarding() -> aiosqlite.Row:
+    conn = await get_conn()
+    try:
+        cur = await conn.execute("SELECT * FROM onboarding WHERE id = 1")
+        return await cur.fetchone()
+    finally:
+        await conn.close()
+
+
+async def update_onboarding(text: Optional[str] = None, photo_file_id: Optional[Any] = "__skip__") -> None:
+    conn = await get_conn()
+    try:
+        if text is not None:
+            await conn.execute("UPDATE onboarding SET text = ? WHERE id = 1", (text,))
+        if photo_file_id != "__skip__":
+            await conn.execute("UPDATE onboarding SET photo_file_id = ? WHERE id = 1", (photo_file_id,))
+        await conn.commit()
+    finally:
+        await conn.close()
+
+
+# ---------------------------------------------------------------------------
+# Section items (values / standards)
+# ---------------------------------------------------------------------------
+
+async def get_section_items(section: str) -> list[aiosqlite.Row]:
+    conn = await get_conn()
+    try:
+        cur = await conn.execute(
+            "SELECT * FROM section_items WHERE section = ? ORDER BY sort_order, id",
+            (section,),
+        )
+        return await cur.fetchall()
+    finally:
+        await conn.close()
+
+
+async def get_section_item(item_id: int) -> Optional[aiosqlite.Row]:
+    conn = await get_conn()
+    try:
+        cur = await conn.execute("SELECT * FROM section_items WHERE id = ?", (item_id,))
+        return await cur.fetchone()
+    finally:
+        await conn.close()
+
+
+async def add_section_item(section: str, title: str, description: str = "", photo_file_id: Optional[str] = None) -> int:
+    conn = await get_conn()
+    try:
+        cur = await conn.execute("SELECT COALESCE(MAX(sort_order), -1) + 1 AS n FROM section_items WHERE section = ?", (section,))
+        sort_order = (await cur.fetchone())["n"]
+        cur = await conn.execute(
+            "INSERT INTO section_items (section, title, description, photo_file_id, sort_order, created_at) "
+            "VALUES (?, ?, ?, ?, ?, ?)",
+            (section, title, description, photo_file_id, sort_order, int(time.time())),
+        )
+        await conn.commit()
+        return cur.lastrowid
+    finally:
+        await conn.close()
+
+
+async def update_section_item(item_id: int, **fields) -> None:
+    if not fields:
+        return
+    conn = await get_conn()
+    try:
+        keys = ", ".join(f"{k} = ?" for k in fields)
+        values = list(fields.values()) + [item_id]
+        await conn.execute(f"UPDATE section_items SET {keys} WHERE id = ?", values)
+        await conn.commit()
+    finally:
+        await conn.close()
+
+
+async def delete_section_item(item_id: int) -> None:
+    conn = await get_conn()
+    try:
+        await conn.execute("DELETE FROM section_items WHERE id = ?", (item_id,))
+        await conn.commit()
+    finally:
+        await conn.close()
+
+
+# ---------------------------------------------------------------------------
+# Groups
+# ---------------------------------------------------------------------------
+
+async def get_groups() -> list[aiosqlite.Row]:
+    conn = await get_conn()
+    try:
+        cur = await conn.execute("SELECT * FROM groups ORDER BY sort_order, id")
+        return await cur.fetchall()
+    finally:
+        await conn.close()
+
+
+async def get_group(group_id: int) -> Optional[aiosqlite.Row]:
+    conn = await get_conn()
+    try:
+        cur = await conn.execute("SELECT * FROM groups WHERE id = ?", (group_id,))
+        return await cur.fetchone()
+    finally:
+        await conn.close()
+
+
+async def add_group(title: str) -> int:
+    conn = await get_conn()
+    try:
+        cur = await conn.execute("SELECT COALESCE(MAX(sort_order), -1) + 1 AS n FROM groups")
+        sort_order = (await cur.fetchone())["n"]
+        cur = await conn.execute(
+            "INSERT INTO groups (title, sort_order, created_at) VALUES (?, ?, ?)",
+            (title, sort_order, int(time.time())),
+        )
+        await conn.commit()
+        return cur.lastrowid
+    finally:
+        await conn.close()
+
+
+async def update_group(group_id: int, title: str) -> None:
+    conn = await get_conn()
+    try:
+        await conn.execute("UPDATE groups SET title = ? WHERE id = ?", (title, group_id))
+        await conn.commit()
+    finally:
+        await conn.close()
+
+
+async def delete_group(group_id: int) -> None:
+    conn = await get_conn()
+    try:
+        await conn.execute("DELETE FROM groups WHERE id = ?", (group_id,))
+        await conn.commit()
+    finally:
+        await conn.close()
+
+
+# ---------------------------------------------------------------------------
+# Categories
+# ---------------------------------------------------------------------------
+
+async def get_categories(group_id: int) -> list[aiosqlite.Row]:
+    conn = await get_conn()
+    try:
+        cur = await conn.execute(
+            "SELECT * FROM categories WHERE group_id = ? ORDER BY sort_order, id", (group_id,)
+        )
+        return await cur.fetchall()
+    finally:
+        await conn.close()
+
+
+async def get_category(category_id: int) -> Optional[aiosqlite.Row]:
+    conn = await get_conn()
+    try:
+        cur = await conn.execute("SELECT * FROM categories WHERE id = ?", (category_id,))
+        return await cur.fetchone()
+    finally:
+        await conn.close()
+
+
+async def add_category(group_id: int, title: str) -> int:
+    conn = await get_conn()
+    try:
+        cur = await conn.execute(
+            "SELECT COALESCE(MAX(sort_order), -1) + 1 AS n FROM categories WHERE group_id = ?", (group_id,)
+        )
+        sort_order = (await cur.fetchone())["n"]
+        cur = await conn.execute(
+            "INSERT INTO categories (group_id, title, sort_order, created_at) VALUES (?, ?, ?, ?)",
+            (group_id, title, sort_order, int(time.time())),
+        )
+        await conn.commit()
+        return cur.lastrowid
+    finally:
+        await conn.close()
+
+
+async def update_category(category_id: int, title: str) -> None:
+    conn = await get_conn()
+    try:
+        await conn.execute("UPDATE categories SET title = ? WHERE id = ?", (title, category_id))
+        await conn.commit()
+    finally:
+        await conn.close()
+
+
+async def delete_category(category_id: int) -> None:
+    conn = await get_conn()
+    try:
+        await conn.execute("DELETE FROM categories WHERE id = ?", (category_id,))
+        await conn.commit()
+    finally:
+        await conn.close()
+
+
+# ---------------------------------------------------------------------------
+# Positions
+# ---------------------------------------------------------------------------
+
+async def get_positions(category_id: int) -> list[aiosqlite.Row]:
+    conn = await get_conn()
+    try:
+        cur = await conn.execute(
+            "SELECT * FROM positions WHERE category_id = ? ORDER BY sort_order, id", (category_id,)
+        )
+        return await cur.fetchall()
+    finally:
+        await conn.close()
+
+
+async def get_position(position_id: int) -> Optional[aiosqlite.Row]:
+    conn = await get_conn()
+    try:
+        cur = await conn.execute("SELECT * FROM positions WHERE id = ?", (position_id,))
+        return await cur.fetchone()
+    finally:
+        await conn.close()
+
+
+async def add_position(category_id: int, title: str) -> int:
+    conn = await get_conn()
+    try:
+        cur = await conn.execute(
+            "SELECT COALESCE(MAX(sort_order), -1) + 1 AS n FROM positions WHERE category_id = ?", (category_id,)
+        )
+        sort_order = (await cur.fetchone())["n"]
+        cur = await conn.execute(
+            "INSERT INTO positions (category_id, title, sort_order, created_at) VALUES (?, ?, ?, ?)",
+            (category_id, title, sort_order, int(time.time())),
+        )
+        await conn.commit()
+        return cur.lastrowid
+    finally:
+        await conn.close()
+
+
+async def update_position(position_id: int, **fields) -> None:
+    if not fields:
+        return
+    conn = await get_conn()
+    try:
+        keys = ", ".join(f"{k} = ?" for k in fields)
+        values = list(fields.values()) + [position_id]
+        await conn.execute(f"UPDATE positions SET {keys} WHERE id = ?", values)
+        await conn.commit()
+    finally:
+        await conn.close()
+
+
+async def delete_position(position_id: int) -> None:
+    conn = await get_conn()
+    try:
+        await conn.execute("DELETE FROM positions WHERE id = ?", (position_id,))
+        await conn.commit()
+    finally:
+        await conn.close()
+
+
+# ---------------------------------------------------------------------------
+# Admins
+# ---------------------------------------------------------------------------
+
+async def get_admin_ids() -> set[int]:
+    conn = await get_conn()
+    try:
+        cur = await conn.execute("SELECT user_id FROM admins")
+        rows = await cur.fetchall()
+        return {r["user_id"] for r in rows}
+    finally:
+        await conn.close()
+
+
+async def add_admin(user_id: int) -> None:
+    conn = await get_conn()
+    try:
+        await conn.execute(
+            "INSERT OR IGNORE INTO admins (user_id, added_at) VALUES (?, ?)",
+            (user_id, int(time.time())),
+        )
+        await conn.commit()
+    finally:
+        await conn.close()
+
+
+async def remove_admin(user_id: int) -> None:
+    conn = await get_conn()
+    try:
+        await conn.execute("DELETE FROM admins WHERE user_id = ?", (user_id,))
+        await conn.commit()
+    finally:
+        await conn.close()

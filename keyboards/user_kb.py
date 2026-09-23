@@ -8,7 +8,7 @@ from aiogram.types import (
 )
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 
-from keyboards.callback_data import MainCB, SectionCB, MenuCB
+from keyboards.callback_data import MainCB, SectionCB, MenuCB, QuizCB
 
 BTN_VALUES = "💎 Ценности"
 BTN_STANDARDS = "📐 Стандарты"
@@ -16,6 +16,7 @@ BTN_MENU = "📋 Меню"
 BTN_HOME = "🏠 Главное меню"
 BTN_ADMIN = "⚙️ Админ-панель"
 BTN_BACK = "⬅️ Назад"
+BTN_QUIZ_START = "🧪 Пройти тест по стандартам"
 
 
 def reply_kb(is_admin: bool = False) -> ReplyKeyboardMarkup:
@@ -34,11 +35,13 @@ def main_menu_kb() -> InlineKeyboardMarkup:
     return b.as_markup()
 
 
-def section_list_kb(section: str, items) -> InlineKeyboardMarkup:
+def section_list_kb(section: str, items, show_quiz_button: bool = False) -> InlineKeyboardMarkup:
     b = InlineKeyboardBuilder()
     for item in items:
         b.button(text=item["title"], callback_data=SectionCB(section=section, action="view", id=item["id"]))
     b.adjust(1)
+    if show_quiz_button:
+        b.row(InlineKeyboardButton(text=BTN_QUIZ_START, callback_data=QuizCB(action="start").pack()))
     b.row(InlineKeyboardButton(text=BTN_BACK, callback_data=MainCB(action="root").pack()))
     return b.as_markup()
 
@@ -85,4 +88,18 @@ def position_card_kb(category_id: int) -> InlineKeyboardMarkup:
 def empty_list_kb(back_cb: str) -> InlineKeyboardMarkup:
     b = InlineKeyboardBuilder()
     b.row(InlineKeyboardButton(text=BTN_BACK, callback_data=back_cb))
+    return b.as_markup()
+
+
+def quiz_question_kb(options) -> InlineKeyboardMarkup:
+    b = InlineKeyboardBuilder()
+    for opt in options:
+        b.button(text=opt["option_text"], callback_data=QuizCB(action="answer", id=opt["id"]))
+    b.adjust(1)
+    return b.as_markup()
+
+
+def quiz_result_kb() -> InlineKeyboardMarkup:
+    b = InlineKeyboardBuilder()
+    b.row(InlineKeyboardButton(text=BTN_BACK, callback_data=SectionCB(section="standards", action="list").pack()))
     return b.as_markup()

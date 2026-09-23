@@ -30,3 +30,7 @@ class AdminStates(StatesGroup):
 
     # администраторы
     waiting_admin_id_add = State()
+
+    # тест по стандартам
+    waiting_quiz_question_text = State()
+    waiting_quiz_options_text = State()

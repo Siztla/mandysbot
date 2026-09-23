@@ -20,6 +20,11 @@ class MenuCB(CallbackData, prefix="mn"):
     id: int = 0
 
 
+class QuizCB(CallbackData, prefix="qz"):
+    action: str  # "start" | "answer" | "finish_ack"
+    id: int = 0   # id варианта ответа (для action="answer")
+
+
 # --- Админ-часть -------------------------------------------------------------
 
 class AdminRootCB(CallbackData, prefix="ar"):
@@ -58,6 +63,12 @@ class AdminOnboardingCB(CallbackData, prefix="ao"):
 
 class AdminAdminsCB(CallbackData, prefix="aa"):
     action: str  # "list" | "add" | "remove"
+    id: int = 0
+
+
+class AdminQuizCB(CallbackData, prefix="aq"):
+    action: str
+    # "list" | "open" | "add" | "edit_text" | "edit_options" | "delete" | "results"
     id: int = 0
 
 

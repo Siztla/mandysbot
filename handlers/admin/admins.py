@@ -65,9 +65,9 @@ async def cb_admins_remove(callback: CallbackQuery, callback_data: AdminAdminsCB
 @admin_router.message(AdminStates.waiting_admin_id_add)
 async def on_admin_id_add(message: Message, state: FSMContext) -> None:
     raw = (message.text or "").strip()
-    if not raw.lstrip("-").isdigit():
+    if not raw.isdigit():
         await message.answer(
-            "Нужно прислать числовой Telegram ID. Попробуйте ещё раз:",
+            "Нужно прислать числовой Telegram ID (положительное число). Попробуйте ещё раз:",
             reply_markup=admin_kb.cancel_kb(),
         )
         return

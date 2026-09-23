@@ -86,3 +86,11 @@ async def on_onboarding_photo_text(message: Message, state: FSMContext) -> None:
     await state.clear()
     await message.answer("Фото удалено ✅")
     await _send_onboarding_card(message)
+
+
+@admin_router.message(AdminStates.waiting_onboarding_photo)
+async def on_onboarding_photo_other(message: Message, state: FSMContext) -> None:
+    await message.answer(
+        "Не получилось распознать сообщение. Пришлите фото или «-», чтобы убрать текущее фото.",
+        reply_markup=admin_kb.cancel_kb(),
+    )

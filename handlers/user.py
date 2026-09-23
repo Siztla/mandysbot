@@ -58,7 +58,8 @@ async def cb_open_section(callback: CallbackQuery, callback_data: MainCB) -> Non
         text = f"{header}\n\nРаздел пока пуст. Загляните позже."
     else:
         text = f"{header}\n\nВыберите пункт:"
-    await edit_or_send(callback, text, user_kb.section_list_kb(section, items))
+    show_quiz = section == "standards" and await db.count_quiz_questions() > 0
+    await edit_or_send(callback, text, user_kb.section_list_kb(section, items, show_quiz_button=show_quiz))
     await callback.answer()
 
 
@@ -68,7 +69,8 @@ async def cb_section_list(callback: CallbackQuery, callback_data: SectionCB) -> 
     items = await db.get_section_items(section)
     header = SECTION_TITLES[section]
     text = f"{header}\n\nВыберите пункт:" if items else f"{header}\n\nРаздел пока пуст. Загляните позже."
-    await edit_or_send(callback, text, user_kb.section_list_kb(section, items))
+    show_quiz = section == "standards" and await db.count_quiz_questions() > 0
+    await edit_or_send(callback, text, user_kb.section_list_kb(section, items, show_quiz_button=show_quiz))
     await callback.answer()
 
 

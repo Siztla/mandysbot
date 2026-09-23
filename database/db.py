@@ -11,6 +11,7 @@
     quiz_questions  — вопросы теста по стандартам сервиса
     quiz_options    — варианты ответов к вопросам (один правильный)
     quiz_results    — результаты прохождения теста сотрудниками
+    meta            — служебное key-value хранилище (флаги миграций и т.п.)
 """
 
 import os
@@ -20,6 +21,7 @@ from typing import Any, Optional
 import aiosqlite
 
 import config
+from utils.htmlsafe import esc
 
 DEFAULT_GROUPS = [
     "Завтраки",
@@ -145,6 +147,11 @@ async def init_db() -> None:
                 total INTEGER NOT NULL,
                 finished_at INTEGER NOT NULL
             );
+
+            CREATE TABLE IF NOT EXISTS meta (
+                key TEXT PRIMARY KEY,
+                value TEXT NOT NULL
+            );
             """
         )
         await conn.commit()
@@ -175,6 +182,75 @@ async def init_db() -> None:
                 "INSERT OR IGNORE INTO admins (user_id, added_at) VALUES (?, ?)",
                 (admin_id, int(time.time())),
             )
+        await conn.commit()
+
+        # --- одноразовая миграция: экранирование HTML-спецсимволов в уже
+        # накопленном тексте, чтобы после перехода на parse_mode=HTML он
+        # по-прежнему отображался как обычный текст, а не ломал разметку ---
+        cur = await conn.execute("SELECT value FROM meta WHERE key = 'html_migration_v1'")
+        row = await cur.fetchone()
+        if row is None or row["value"] != "done":
+            cur = await conn.execute("SELECT id, text FROM onboarding")
+            for r in await cur.fetchall():
+                await conn.execute(
+                    "UPDATE onboarding SET text = ? WHERE id = ?",
+                    (esc(r["text"]), r["id"]),
+                )
+
+            cur = await conn.execute("SELECT id, description FROM section_items")
+            for r in await cur.fetchall():
+                await conn.execute(
+                    "UPDATE section_items SET description = ? WHERE id = ?",
+                    (esc(r["description"]), r["id"]),
+                )
+
+            cur = await conn.execute(
+                "SELECT id, composition, description, allergens, served_with FROM positions"
+            )
+            for r in await cur.fetchall():
+                await conn.execute(
+                    "UPDATE positions SET composition = ?, description = ?, allergens = ?, served_with = ? "
+                    "WHERE id = ?",
+                    (
+                        esc(r["composition"]),
+                        esc(r["description"]),
+                        esc(r["allergens"]),
+                        esc(r["served_with"]),
+                        r["id"],
+                    ),
+                )
+
+            await conn.execute(
+                "INSERT INTO meta (key, value) VALUES ('html_migration_v1', 'done') "
+                "ON CONFLICT(key) DO UPDATE SET value = excluded.value"
+            )
+            await conn.commit()
+    finally:
+        await conn.close()
+
+
+# ---------------------------------------------------------------------------
+# Meta (служебное key-value хранилище)
+# ---------------------------------------------------------------------------
+
+async def get_meta(key: str) -> Optional[str]:
+    conn = await get_conn()
+    try:
+        cur = await conn.execute("SELECT value FROM meta WHERE key = ?", (key,))
+        row = await cur.fetchone()
+        return row["value"] if row else None
+    finally:
+        await conn.close()
+
+
+async def set_meta(key: str, value: str) -> None:
+    conn = await get_conn()
+    try:
+        await conn.execute(
+            "INSERT INTO meta (key, value) VALUES (?, ?) "
+            "ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+            (key, value),
+        )
         await conn.commit()
     finally:
         await conn.close()

@@ -3,6 +3,7 @@ import logging
 
 from aiogram import Bot, Dispatcher
 from aiogram.client.default import DefaultBotProperties
+from aiogram.enums import ParseMode
 from aiogram.fsm.storage.memory import MemoryStorage
 
 import config
@@ -22,7 +23,7 @@ async def main() -> None:
 
     await init_db()
 
-    bot = Bot(token=config.BOT_TOKEN, default=DefaultBotProperties(parse_mode=None))
+    bot = Bot(token=config.BOT_TOKEN, default=DefaultBotProperties(parse_mode=ParseMode.HTML))
     dp = Dispatcher(storage=MemoryStorage())
 
     # Порядок важен: сначала админ-роутер (у него есть команда /admin и все

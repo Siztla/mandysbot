@@ -1,9 +1,14 @@
-"""Форматирование карточек в обычный текст (без разметки, чтобы не ломалось
-на произвольном тексте, который вводит администратор)."""
+"""Форматирование карточек для отправки в HTML-режиме. Заголовки
+(title) — обычный текст, который экранируется здесь перед вставкой;
+описательные поля (composition/description/allergens/served_with)
+приходят из БД уже безопасными для HTML (см. utils.htmlsafe и миграцию
+в database.db) и вставляются как есть, без повторного экранирования."""
+
+from utils.htmlsafe import esc
 
 
 def format_position(position) -> str:
-    lines = [f"🍽 {position['title']}"]
+    lines = [f"🍽 {esc(position['title'])}"]
 
     if position["composition"]:
         lines.append(f"\n🧾 Состав:\n{position['composition']}")
@@ -27,6 +32,6 @@ def format_position_admin(position) -> str:
 
 
 def format_section_item(item) -> str:
-    title = item["title"]
+    title = esc(item["title"])
     description = item["description"] or "Описание пока не добавлено."
     return f"{title}\n\n{description}"

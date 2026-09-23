@@ -58,7 +58,7 @@ async def main() -> int:
 
         await bot.delete_webhook(drop_pending_updates=True)
 
-        # Если в data/menu/menu.json новое меню — загрузить его в базу (в фоне,
+        # Если в content/menu/menu.json новое меню — загрузить его в базу (в фоне,
         # бот при этом уже отвечает пользователям).
         async def _safe_auto_import() -> None:
             try:

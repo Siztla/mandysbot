@@ -19,5 +19,5 @@ env/
 .vscode/
 .idea/
 .DS_Store
-data/menu/.photo_cache.json
+content/menu/.photo_cache.json
 *.db.backup-*

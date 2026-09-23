@@ -1,4 +1,4 @@
-"""Массовый импорт меню в базу бота из data/menu/menu.json.
+"""Массовый импорт меню в базу бота из content/menu/menu.json.
 
 Импорт запускается тремя способами:
 
@@ -44,7 +44,10 @@ if str(ROOT) not in sys.path:
 import config  # noqa: E402
 from database import db  # noqa: E402
 
-DATA_DIR = ROOT / "data" / "menu"
+# Меню лежит в content/menu, а не в data/: на BotHost папка /app/data —
+# постоянное хранилище, которое подключается поверх кода и закрывает собой
+# всё, что лежало в data/ в репозитории.
+DATA_DIR = ROOT / "content" / "menu"
 MENU_FILE = DATA_DIR / "menu.json"
 
 log = logging.getLogger("menu_import")
@@ -125,7 +128,9 @@ async def import_menu(
     dry_run: bool = False,
     say: Callable[[str], None] = print,
 ) -> dict:
-    """Импортирует data/menu/menu.json. Возвращает статистику."""
+    """Импортирует content/menu/menu.json. Возвращает статистику."""
+    if not MENU_FILE.exists():
+        raise FileNotFoundError(f"Файл меню не найден: {MENU_FILE}")
     menu = json.loads(MENU_FILE.read_text("utf-8"))
     stats = dict(created=0, updated=0, photos=0, photo_errors=0, groups_created=0, categories_created=0)
 
@@ -207,8 +212,10 @@ async def auto_import(bot) -> None:
     """Вызывается при старте бота: импортирует меню, если файл изменился."""
     current = menu_file_hash()
     if current is None:
+        log.warning("Файл меню %s не найден — импорт меню пропущен", MENU_FILE)
         return
     if await db.get_meta("menu_import_hash") == current:
+        log.info("Меню не изменилось с прошлого импорта — пропускаю")
         return
     chat_id = await pick_upload_chat()
     uploader = PhotoUploader(bot, chat_id) if chat_id else None

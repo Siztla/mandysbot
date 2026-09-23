@@ -46,14 +46,19 @@ async def cb_admin_cancel(callback: CallbackQuery, state: FSMContext) -> None:
 
 @admin_router.message(Command("import_menu"))
 async def cmd_import_menu(message: Message, state: FSMContext) -> None:
-    """Повторно загрузить меню из data/menu/menu.json (тексты и фото)."""
+    """Повторно загрузить меню из content/menu/menu.json (тексты и фото)."""
     if not await is_admin(message.from_user.id):
         return
     from tools.import_menu import (
         PhotoUploader, _backup_db, format_stats, import_menu, menu_file_hash,
     )
 
+    from tools.import_menu import MENU_FILE
+
     await state.clear()
+    if not MENU_FILE.exists():
+        await message.answer("⚠️ Файл меню не найден на сервере (content/menu/menu.json).")
+        return
     replace = "фото" in (message.text or "").lower()
     await message.answer(
         "⏳ Загружаю меню из файла… Это займёт 1–2 минуты."

@@ -8,6 +8,7 @@ from aiogram.fsm.storage.memory import MemoryStorage
 import config
 from database.db import init_db
 from handlers.user import router as user_router
+from handlers.quiz import router as quiz_router
 from handlers.admin import admin_router
 
 
@@ -29,6 +30,7 @@ async def main() -> None:
     # callback_data-префиксам, так что порядок на работу не влияет, но так
     # нагляднее.
     dp.include_router(admin_router)
+    dp.include_router(quiz_router)
     dp.include_router(user_router)
 
     await bot.delete_webhook(drop_pending_updates=True)

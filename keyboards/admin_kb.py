@@ -11,6 +11,7 @@ from keyboards.callback_data import (
     AdminSectionCB,
     AdminOnboardingCB,
     AdminAdminsCB,
+    AdminQuizCB,
     ADMIN_CANCEL,
 )
 
@@ -29,6 +30,7 @@ def admin_root_kb() -> InlineKeyboardMarkup:
     b.button(text="💎 Ценности", callback_data=AdminRootCB(action="values"))
     b.button(text="📐 Стандарты", callback_data=AdminRootCB(action="standards"))
     b.button(text="📝 Онбординг", callback_data=AdminRootCB(action="onboarding"))
+    b.button(text="🧪 Тест по стандартам", callback_data=AdminRootCB(action="quiz"))
     b.button(text="👤 Администраторы", callback_data=AdminRootCB(action="admins"))
     b.button(text="🚪 Выйти из админки", callback_data=AdminRootCB(action="exit"))
     b.adjust(1)
@@ -173,4 +175,34 @@ def admins_list_kb(admin_ids) -> InlineKeyboardMarkup:
     b.adjust(1)
     b.row(InlineKeyboardButton(text="➕ Добавить администратора", callback_data=AdminAdminsCB(action="add").pack()))
     b.row(InlineKeyboardButton(text=BACK, callback_data=AdminRootCB(action="root").pack()))
+    return b.as_markup()
+
+
+# --- Тест по стандартам --------------------------------------------------
+
+def quiz_list_kb(questions) -> InlineKeyboardMarkup:
+    b = InlineKeyboardBuilder()
+    for q in questions:
+        label = q["question"] if len(q["question"]) <= 60 else q["question"][:57] + "…"
+        b.button(text=label, callback_data=AdminQuizCB(action="open", id=q["id"]))
+    b.adjust(1)
+    b.row(InlineKeyboardButton(text="➕ Добавить вопрос", callback_data=AdminQuizCB(action="add").pack()))
+    b.row(InlineKeyboardButton(text="📊 Результаты сотрудников", callback_data=AdminQuizCB(action="results").pack()))
+    b.row(InlineKeyboardButton(text=BACK, callback_data=AdminRootCB(action="root").pack()))
+    return b.as_markup()
+
+
+def quiz_question_card_kb(question_id: int) -> InlineKeyboardMarkup:
+    b = InlineKeyboardBuilder()
+    b.button(text="✏️ Текст вопроса", callback_data=AdminQuizCB(action="edit_text", id=question_id))
+    b.button(text="🔄 Варианты ответов", callback_data=AdminQuizCB(action="edit_options", id=question_id))
+    b.button(text="🗑 Удалить вопрос", callback_data=AdminQuizCB(action="delete", id=question_id))
+    b.adjust(2, 1)
+    b.row(InlineKeyboardButton(text=BACK, callback_data=AdminQuizCB(action="list").pack()))
+    return b.as_markup()
+
+
+def quiz_list_or_back_kb() -> InlineKeyboardMarkup:
+    b = InlineKeyboardBuilder()
+    b.row(InlineKeyboardButton(text=BACK, callback_data=AdminQuizCB(action="list").pack()))
     return b.as_markup()

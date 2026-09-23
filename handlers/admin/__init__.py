@@ -17,5 +17,6 @@ from handlers.admin import positions  # noqa: E402,F401
 from handlers.admin import sections  # noqa: E402,F401
 from handlers.admin import onboarding  # noqa: E402,F401
 from handlers.admin import admins  # noqa: E402,F401
+from handlers.admin import quiz  # noqa: E402,F401
 
 __all__ = ["admin_router"]

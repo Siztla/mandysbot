@@ -8,8 +8,12 @@
     categories      — категории внутри группы
     positions       — позиции (блюда) внутри категории
     admins          — администраторы бота (user_id Telegram)
+    quiz_questions  — вопросы теста по стандартам сервиса
+    quiz_options    — варианты ответов к вопросам (один правильный)
+    quiz_results    — результаты прохождения теста сотрудниками
 """
 
+import os
 import time
 from typing import Any, Optional
 
@@ -37,15 +41,27 @@ DEFAULT_GROUPS = [
 ]
 
 DEFAULT_ONBOARDING_TEXT = (
-    "Добро пожаловать в команду Mandy's! 🌿\n\n"
-    "Этот бот поможет тебе быстро освоиться: здесь собраны наши ценности, "
-    "стандарты работы и полное меню с составом, описанием и аллергенами "
-    "каждого блюда.\n\n"
-    "Используй меню ниже, чтобы начать обучение."
+    "Добро пожаловать в команду Caffé Mandy's! 🥐☕\n\n"
+    "Мы — ресторан-брассери с контактным баром на Покровке, в историческом "
+    "доме с колосьями — первом в Москве здании в стиле модерн. Идея "
+    "проекта: классическое нью-йоркское брассери, где смешиваются кухни и "
+    "культуры мира, а лёгкость итальянского caffe уравновешивает энергию "
+    "мегаполиса.\n\n"
+    "Здесь одинаково уместны завтрак с детьми, деловой обед, ужин с "
+    "друзьями и коктейль у барной стойки — в любое время суток гость "
+    "должен чувствовать: здесь всё продумано, от приветствия до подачи "
+    "блюда.\n\n"
+    "Мы не просто кормим — мы дарим гостям кусочек Нью-Йорка, не покидая "
+    "Москвы. И каждый из нас — часть этой истории.\n\n"
+    "Дальше в этом боте — наши ценности, стандарты работы и полное меню. "
+    "Добро пожаловать в команду! 🦫🍴"
 )
 
 
 async def get_conn() -> aiosqlite.Connection:
+    db_dir = os.path.dirname(config.DB_PATH)
+    if db_dir:
+        os.makedirs(db_dir, exist_ok=True)
     conn = await aiosqlite.connect(config.DB_PATH)
     await conn.execute("PRAGMA foreign_keys = ON")
     conn.row_factory = aiosqlite.Row
@@ -104,6 +120,30 @@ async def init_db() -> None:
             CREATE TABLE IF NOT EXISTS admins (
                 user_id INTEGER PRIMARY KEY,
                 added_at INTEGER NOT NULL
+            );
+
+            CREATE TABLE IF NOT EXISTS quiz_questions (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                question TEXT NOT NULL,
+                sort_order INTEGER NOT NULL DEFAULT 0,
+                created_at INTEGER NOT NULL
+            );
+
+            CREATE TABLE IF NOT EXISTS quiz_options (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                question_id INTEGER NOT NULL REFERENCES quiz_questions(id) ON DELETE CASCADE,
+                option_text TEXT NOT NULL,
+                is_correct INTEGER NOT NULL DEFAULT 0,
+                sort_order INTEGER NOT NULL DEFAULT 0
+            );
+
+            CREATE TABLE IF NOT EXISTS quiz_results (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id INTEGER NOT NULL,
+                user_name TEXT NOT NULL DEFAULT '',
+                score INTEGER NOT NULL,
+                total INTEGER NOT NULL,
+                finished_at INTEGER NOT NULL
             );
             """
         )
@@ -436,5 +476,135 @@ async def remove_admin(user_id: int) -> None:
     try:
         await conn.execute("DELETE FROM admins WHERE user_id = ?", (user_id,))
         await conn.commit()
+    finally:
+        await conn.close()
+
+
+# ---------------------------------------------------------------------------
+# Тест по стандартам: вопросы и варианты ответов
+# ---------------------------------------------------------------------------
+
+async def get_quiz_questions() -> list[aiosqlite.Row]:
+    conn = await get_conn()
+    try:
+        cur = await conn.execute("SELECT * FROM quiz_questions ORDER BY sort_order, id")
+        return await cur.fetchall()
+    finally:
+        await conn.close()
+
+
+async def count_quiz_questions() -> int:
+    conn = await get_conn()
+    try:
+        cur = await conn.execute("SELECT COUNT(*) AS c FROM quiz_questions")
+        row = await cur.fetchone()
+        return row["c"]
+    finally:
+        await conn.close()
+
+
+async def get_quiz_question(question_id: int) -> Optional[aiosqlite.Row]:
+    conn = await get_conn()
+    try:
+        cur = await conn.execute("SELECT * FROM quiz_questions WHERE id = ?", (question_id,))
+        return await cur.fetchone()
+    finally:
+        await conn.close()
+
+
+async def add_quiz_question(question: str) -> int:
+    conn = await get_conn()
+    try:
+        cur = await conn.execute("SELECT COALESCE(MAX(sort_order), -1) + 1 AS n FROM quiz_questions")
+        sort_order = (await cur.fetchone())["n"]
+        cur = await conn.execute(
+            "INSERT INTO quiz_questions (question, sort_order, created_at) VALUES (?, ?, ?)",
+            (question, sort_order, int(time.time())),
+        )
+        await conn.commit()
+        return cur.lastrowid
+    finally:
+        await conn.close()
+
+
+async def update_quiz_question(question_id: int, question: str) -> None:
+    conn = await get_conn()
+    try:
+        await conn.execute("UPDATE quiz_questions SET question = ? WHERE id = ?", (question, question_id))
+        await conn.commit()
+    finally:
+        await conn.close()
+
+
+async def delete_quiz_question(question_id: int) -> None:
+    conn = await get_conn()
+    try:
+        await conn.execute("DELETE FROM quiz_questions WHERE id = ?", (question_id,))
+        await conn.commit()
+    finally:
+        await conn.close()
+
+
+async def get_quiz_options(question_id: int) -> list[aiosqlite.Row]:
+    conn = await get_conn()
+    try:
+        cur = await conn.execute(
+            "SELECT * FROM quiz_options WHERE question_id = ? ORDER BY sort_order, id", (question_id,)
+        )
+        return await cur.fetchall()
+    finally:
+        await conn.close()
+
+
+async def get_quiz_option(option_id: int) -> Optional[aiosqlite.Row]:
+    conn = await get_conn()
+    try:
+        cur = await conn.execute("SELECT * FROM quiz_options WHERE id = ?", (option_id,))
+        return await cur.fetchone()
+    finally:
+        await conn.close()
+
+
+async def replace_quiz_options(question_id: int, options: list[tuple[str, bool]]) -> None:
+    """Полностью заменяет варианты ответа вопроса: удаляет старые, пишет
+    новые. `options` — список (текст_варианта, это_правильный)."""
+    conn = await get_conn()
+    try:
+        await conn.execute("DELETE FROM quiz_options WHERE question_id = ?", (question_id,))
+        for i, (text, is_correct) in enumerate(options):
+            await conn.execute(
+                "INSERT INTO quiz_options (question_id, option_text, is_correct, sort_order) "
+                "VALUES (?, ?, ?, ?)",
+                (question_id, text, 1 if is_correct else 0, i),
+            )
+        await conn.commit()
+    finally:
+        await conn.close()
+
+
+# ---------------------------------------------------------------------------
+# Тест по стандартам: результаты прохождения
+# ---------------------------------------------------------------------------
+
+async def save_quiz_result(user_id: int, user_name: str, score: int, total: int) -> None:
+    conn = await get_conn()
+    try:
+        await conn.execute(
+            "INSERT INTO quiz_results (user_id, user_name, score, total, finished_at) "
+            "VALUES (?, ?, ?, ?, ?)",
+            (user_id, user_name, score, total, int(time.time())),
+        )
+        await conn.commit()
+    finally:
+        await conn.close()
+
+
+async def get_quiz_results(limit: int = 50) -> list[aiosqlite.Row]:
+    conn = await get_conn()
+    try:
+        cur = await conn.execute(
+            "SELECT * FROM quiz_results ORDER BY finished_at DESC LIMIT ?", (limit,)
+        )
+        return await cur.fetchall()
     finally:
         await conn.close()

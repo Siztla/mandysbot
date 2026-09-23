@@ -211,3 +211,11 @@ async def on_position_photo_text(message: Message, state: FSMContext) -> None:
     await state.clear()
     await message.answer("Фото удалено ✅")
     await _send_position_card(message, data["position_id"])
+
+
+@admin_router.message(AdminStates.waiting_position_photo)
+async def on_position_photo_other(message: Message, state: FSMContext) -> None:
+    await message.answer(
+        "Не получилось распознать сообщение. Пришлите фото или «-», чтобы убрать текущее фото.",
+        reply_markup=admin_kb.cancel_kb(),
+    )

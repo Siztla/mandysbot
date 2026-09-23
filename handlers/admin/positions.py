@@ -7,29 +7,28 @@ from handlers.admin import admin_router
 from keyboards import admin_kb
 from keyboards.callback_data import AdminPositionsCB
 from states.admin_states import AdminStates
-from utils.formatting import format_position, format_position_admin
-from utils.htmlsafe import esc
-from utils.msg import edit_or_send, show_card, send_card
+from utils.formatting import POSITION_PARSE_MODE, format_position, format_position_admin
+from utils.msg import edit_or_send, send_card, show_card
 
 CLEAR_WORDS = {"-", "—", "удалить", "очистить", "нет"}
 
 
 def _positions_title(category) -> str:
-    return f"🍽 {esc(category['title'])} — позиции\n\nВыберите позицию или добавьте новую:"
+    return f"🍽 {category['title']} — позиции\n\nВыберите позицию или добавьте новую:"
 
 
 async def _show_position_card(callback: CallbackQuery, position_id: int) -> None:
     position = await db.get_position(position_id)
     text = format_position_admin(position)
     kb = admin_kb.position_card_kb(position["category_id"], position["id"])
-    await show_card(callback, text, position["photo_file_id"], kb)
+    await show_card(callback, text, position["photo_file_id"], kb, parse_mode=POSITION_PARSE_MODE)
 
 
 async def _send_position_card(message: Message, position_id: int) -> None:
     position = await db.get_position(position_id)
     text = format_position_admin(position)
     kb = admin_kb.position_card_kb(position["category_id"], position["id"])
-    await send_card(message, text, position["photo_file_id"], kb)
+    await send_card(message, text, position["photo_file_id"], kb, parse_mode=POSITION_PARSE_MODE)
 
 
 @admin_router.callback_query(AdminPositionsCB.filter(F.action == "list"))
@@ -67,7 +66,7 @@ async def cb_position_preview(callback: CallbackQuery, callback_data: AdminPosit
         return
     text = "👁 Так видит сотрудник:\n\n" + format_position(position)
     kb = admin_kb.back_to_position_kb(position["category_id"], position["id"])
-    await show_card(callback, text, position["photo_file_id"], kb)
+    await show_card(callback, text, position["photo_file_id"], kb, parse_mode=POSITION_PARSE_MODE)
     await callback.answer()
 
 
@@ -97,6 +96,9 @@ async def cb_position_delete(callback: CallbackQuery, callback_data: AdminPositi
 _FIELD_STATE = {
     "edit_title": (AdminStates.waiting_position_title, "Введите новое название позиции:"),
     "edit_composition": (AdminStates.waiting_position_composition, "Введите состав (например: тесто, сыр, томаты):"),
+    "edit_serving": (AdminStates.waiting_position_serving, "Введите подачу (как блюдо выкладывается и украшается).\nПодзаголовки пишите с новой строки: «Украшение: …», «Заправка: …»:"),
+    "edit_features": (AdminStates.waiting_position_features, "Введите особенности (вкус, текстура, что предложить допом):"),
+    "edit_guest": (AdminStates.waiting_position_guest, "Введите описание для гостя — как официант рассказывает о блюде:"),
     "edit_description": (AdminStates.waiting_position_description, "Введите описание позиции:"),
     "edit_allergens": (AdminStates.waiting_position_allergens, "Введите аллергены (например: глютен, молоко, орехи):"),
     "edit_served": (AdminStates.waiting_position_served, "Введите, с чем подаётся позиция:"),
@@ -140,7 +142,7 @@ async def on_position_title(message: Message, state: FSMContext) -> None:
     else:
         position_id = await db.add_position(data["category_id"], title)
         await message.answer(
-            "Позиция создана ✅\nТеперь заполните карточку: состав, описание, аллергены, с чем подаётся, и фото."
+            "Позиция создана ✅\nТеперь заполните карточку: состав, подача, особенности, описание для гостя и фото."
         )
 
     await _send_position_card(message, position_id)
@@ -148,7 +150,7 @@ async def on_position_title(message: Message, state: FSMContext) -> None:
 
 @admin_router.message(AdminStates.waiting_position_composition)
 async def on_position_composition(message: Message, state: FSMContext) -> None:
-    text = (message.html_text or message.text or "").strip()
+    text = (message.text or "").strip()
     data = await state.get_data()
     await db.update_position(data["position_id"], composition=text)
     await state.clear()
@@ -156,9 +158,33 @@ async def on_position_composition(message: Message, state: FSMContext) -> None:
     await _send_position_card(message, data["position_id"])
 
 
+async def _save_field(message: Message, state: FSMContext, field: str, done_text: str) -> None:
+    text = (message.text or "").strip()
+    data = await state.get_data()
+    await db.update_position(data["position_id"], **{field: text})
+    await state.clear()
+    await message.answer(done_text)
+    await _send_position_card(message, data["position_id"])
+
+
+@admin_router.message(AdminStates.waiting_position_serving)
+async def on_position_serving(message: Message, state: FSMContext) -> None:
+    await _save_field(message, state, "serving", "Подача обновлена ✅")
+
+
+@admin_router.message(AdminStates.waiting_position_features)
+async def on_position_features(message: Message, state: FSMContext) -> None:
+    await _save_field(message, state, "features", "Особенности обновлены ✅")
+
+
+@admin_router.message(AdminStates.waiting_position_guest)
+async def on_position_guest(message: Message, state: FSMContext) -> None:
+    await _save_field(message, state, "guest_description", "Описание для гостя обновлено ✅")
+
+
 @admin_router.message(AdminStates.waiting_position_description)
 async def on_position_description(message: Message, state: FSMContext) -> None:
-    text = (message.html_text or message.text or "").strip()
+    text = (message.text or "").strip()
     data = await state.get_data()
     await db.update_position(data["position_id"], description=text)
     await state.clear()
@@ -168,7 +194,7 @@ async def on_position_description(message: Message, state: FSMContext) -> None:
 
 @admin_router.message(AdminStates.waiting_position_allergens)
 async def on_position_allergens(message: Message, state: FSMContext) -> None:
-    text = (message.html_text or message.text or "").strip()
+    text = (message.text or "").strip()
     data = await state.get_data()
     await db.update_position(data["position_id"], allergens=text)
     await state.clear()
@@ -178,7 +204,7 @@ async def on_position_allergens(message: Message, state: FSMContext) -> None:
 
 @admin_router.message(AdminStates.waiting_position_served)
 async def on_position_served(message: Message, state: FSMContext) -> None:
-    text = (message.html_text or message.text or "").strip()
+    text = (message.text or "").strip()
     data = await state.get_data()
     await db.update_position(data["position_id"], served_with=text)
     await state.clear()

@@ -7,14 +7,13 @@ from handlers.admin import admin_router
 from keyboards import admin_kb
 from keyboards.callback_data import AdminGroupsCB, AdminRootCB
 from states.admin_states import AdminStates
-from utils.htmlsafe import esc
 from utils.msg import edit_or_send
 
 GROUPS_TITLE = "📋 Управление меню — группы\n\nВыберите группу или добавьте новую:"
 
 
 def _group_card_text(group) -> str:
-    return f"📂 Группа: {esc(group['title'])}\n\nID: {group['id']}"
+    return f"📂 Группа: {group['title']}\n\nID: {group['id']}"
 
 
 @admin_router.callback_query(AdminGroupsCB.filter(F.action == "list"))

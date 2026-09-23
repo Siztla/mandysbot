@@ -17,6 +17,9 @@ class AdminStates(StatesGroup):
     waiting_position_description = State()
     waiting_position_allergens = State()
     waiting_position_served = State()
+    waiting_position_serving = State()
+    waiting_position_features = State()
+    waiting_position_guest = State()
 
     # пункты разделов "Ценности" / "Стандарты"
     waiting_section_title = State()
